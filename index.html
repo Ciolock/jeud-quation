@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Zéro Hunter - Mode Facile</title>
+    <style>
+        body { background: #1a1a2e; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; }
+        canvas { background: #16213e; border: 2px solid #4ecca3; border-radius: 8px; cursor: crosshair; }
+        .controls { margin-top: 20px; background: #0f3460; padding: 20px; border-radius: 8px; display: flex; gap: 20px; }
+        .stat { color: #4ecca3; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h1>Mode Facile : L'Équation du Projectile</h1>
+    <p>Trouve le <b>Zéro</b> de la trajectoire en touchant la cible au sol !</p>
+
+    <canvas id="gameCanvas" width="800" height="400"></canvas>
+
+    <div class="controls">
+        <div>
+            <label>Angle: </label>
+            <input type="range" id="angleInput" min="10" max="80" value="45">
+            <span id="angleVal" class="stat">45</span>°
+        </div>
+        <div>
+            <label>Force: </label>
+            <input type="range" id="forceInput" min="20" max="100" value="50">
+            <span id="forceVal" class="stat">50</span>
+        </div>
+        <button id="shootBtn" style="padding: 5px 20px; cursor:pointer;">LANCER !</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Paramètres du jeu
+        let ball = { x: 50, y: 350, vx: 0, vy: 0, active: false };
+        let target = { x: 600, w: 50 };
+        const gravity = 0.5;
+        let trajectory = [];
+
+        // Inputs
+        const angleInput = document.getElementById('angleInput');
+        const forceInput = document.getElementById('forceInput');
+        const shootBtn = document.getElementById('shootBtn');
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Dessiner le sol (L'axe X)
+            ctx.strokeStyle = "#4ecca3";
+            ctx.beginPath();
+            ctx.moveTo(0, 360);
+            ctx.lineTo(800, 360);
+            ctx.stroke();
+
+            // Dessiner la cible (Le Zéro à atteindre)
+            ctx.fillStyle = "#e94560";
+            ctx.fillRect(target.x, 355, target.w, 10);
+            ctx.fillText("ZÉRO", target.x + 10, 380);
+
+            // Dessiner la trajectoire passée
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+            ctx.beginPath();
+            trajectory.forEach((p, i) => {
+                if(i === 0) ctx.moveTo(p.x, p.y);
+                else ctx.lineTo(p.x, p.y);
+            });
+            ctx.stroke();
+
+            // Dessiner le ballon
+            ctx.fillStyle = "#f97316";
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, 8, 0, Math.PI * 2);
+            ctx.fill();
+
+            if (ball.active) {
+                updatePhysics();
+            }
+            requestAnimationFrame(draw);
+        }
+
+        function updatePhysics() {
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+            ball.vy += gravity;
+            trajectory.push({x: ball.x, y: ball.y});
+
+            // Collision avec le sol
+            if (ball.y >= 350) {
+                ball.active = false;
+                checkWin();
+            }
+        }
+
+        function checkWin() {
+            if (ball.x >= target.x && ball.x <= target.x + target.w) {
+                alert("BRAVO ! Tu as résolu l'équation du second degré par l'expérimentation !");
+            }
+            // Reset après 1 sec
+            setTimeout(resetBall, 1000);
+        }
+
+        function resetBall() {
+            ball = { x: 50, y: 350, vx: 0, vy: 0, active: false };
+            trajectory = [];
+        }
+
+        shootBtn.onclick = () => {
+            if (ball.active) return;
+            const angle = angleInput.value * Math.PI / 180;
+            const force = forceInput.value * 0.2;
+            ball.vx = Math.cos(angle) * force * 5;
+            ball.vy = -Math.sin(angle) * force * 5;
+            ball.active = true;
+        };
+
+        // Mise à jour affichage sliders
+        angleInput.oninput = () => document.getElementById('angleVal').innerText = angleInput.value;
+        forceInput.oninput = () => document.getElementById('forceVal').innerText = forceInput.value;
+
+        draw();
+    </script>
+</body>
+</html>
