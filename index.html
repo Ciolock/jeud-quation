@@ -1,367 +1,166 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <title>Zéro Predictor - Mode Facile</title>
-    <style>
-        :root {
-            --bg-color: #0d1117;
-            --primary: #58a6ff; /* Bleu Nuit */
-            --secondary: #2ea043; /* Vert Succès */
-            --accent: #f85149; /* Rouge Alerte */
-            --text: #c9d1d9;
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const btnLaunch = document.getElementById('btnLaunch');
+    const feedback = document.getElementById('feedback');
+
+    // --- CONFIGURATION ---
+    const normalGravity = 0.6;
+    const groundY = 400;
+    const startX = 100;
+    const startY = 320;
+
+    let score = 0;
+    let level = 1;
+    let launchParams = { angle: 45, force: 70 };
+    let ball = { x: startX, y: startY, vx: 0, vy: 0, active: false };
+    let basket = { x: 500, y: groundY - 5, w: 70, h: 40 };
+    let trajectory = [];
+    let mouseX = 0;
+    let timeScale = 1; // 1 = normal, 0.2 = ralenti
+
+    function draw() {
+        ctx.save(); // Sauvegarder l'état pour le zoom
+
+        // --- EFFET DE ZOOM DRAMATIQUE ---
+        // Si le ballon est bas et actif, on zoome un peu vers le bas
+        if (ball.active && ball.y > 250 && ball.vy > 0) {
+            timeScale = 0.15; // Ralentissement extrême (Slow-mo)
+            const zoomFactor = 1.1;
+            ctx.translate(canvas.width / 2, canvas.height);
+            ctx.scale(zoomFactor, zoomFactor);
+            ctx.translate(-canvas.width / 2, -canvas.height);
+        } else {
+            timeScale = 1;
         }
 
-        body { 
-            background: var(--bg-color); 
-            color: var(--text); 
-            font-family: 'Courier New', Courier, monospace; /* Style Code */
-            display: flex; 
-            flex-direction: column; 
-            align-items: center; 
-            justify-content: center;
-            height: 100vh;
-            margin: 0;
-            overflow: hidden; /* Empêche le scroll */
-        }
+        ctx.clearRect(-100, -100, canvas.width + 200, canvas.height + 200);
 
-        h1 { color: var(--primary); text-shadow: 0 0 10px var(--primary); margin-bottom: 5px; }
-        p { margin-top: 0; opacity: 0.8; }
+        // 1. Sol
+        ctx.strokeStyle = "#58a6ff";
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(0, groundY); ctx.lineTo(canvas.width, groundY); ctx.stroke();
 
-        #gameContainer {
-            position: relative;
-        }
+        // 2. Stickman
+        drawStickman(startX - 20, groundY);
 
-        canvas { 
-            background: rgba(16, 20, 26, 0.8); 
-            border: 2px solid var(--primary); 
-            border-radius: 12px; 
-            box-shadow: 0 0 20px rgba(88, 166, 255, 0.3);
-            cursor: none; /* Cache la souris au-dessus du jeu */
-        }
+        // 3. Trajectoire
+        ctx.strokeStyle = "rgba(88, 166, 255, 0.3)";
+        ctx.beginPath();
+        trajectory.forEach((p, i) => { if(i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+        ctx.stroke();
 
-        .ui {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(0, 0, 0, 0.5);
-            padding: 10px;
-            border-radius: 8px;
-            pointer-events: none; /* Ne bloque pas la souris */
-        }
+        // 4. Panier
+        drawBasket();
 
-        .stat { color: var(--secondary); font-weight: bold; }
+        // 5. Ballon
+        ctx.fillStyle = "#f85149";
+        ctx.shadowColor = "#f85149";
+        ctx.shadowBlur = ball.active ? 20 : 0;
+        ctx.beginPath(); ctx.arc(ball.x, ball.y, 10, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+
+        if (ball.active) updatePhysics();
         
-        #btnLaunch {
-            margin-top: 20px;
-            padding: 15px 40px;
-            background: var(--secondary);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 1.2rem;
-            cursor: pointer;
-            transition: all 0.2s;
-            text-transform: uppercase;
-            font-weight: bold;
-        }
+        ctx.restore(); // Annuler le zoom pour le prochain cycle
+        requestAnimationFrame(draw);
+    }
 
-        #btnLaunch:hover { background: #3fb950; transform: scale(1.05); }
-        #btnLaunch:active { transform: scale(0.95); }
-        #btnLaunch:disabled { background: #216e39; opacity: 0.5; cursor: not-allowed; }
-
-        /* Effet de win/lose text */
-        #feedback {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 3rem;
-            font-weight: bold;
-            display: none;
-            pointer-events: none;
-            text-shadow: 0 0 15px white;
-        }
-
-    </style>
-</head>
-<body>
-
-    <h1>MODE FACILE : PRÉDICTION DE ZÉRO</h1>
-    <p>Équation : f(x) = y (parabole). Place le panier au point d'impact (h=0) !</p>
-
-    <div id="gameContainer">
-        <canvas id="gameCanvas" width="900" height="450"></canvas>
-        <div class="ui">
-            Niveau: <span id="levelVal" class="stat">1</span> | 
-            Score: <span id="scoreVal" class="stat">0</span>
-        </div>
-        <div id="feedback"></div>
-    </div>
-
-    <button id="btnLaunch">LANCER LE BALLON</button>
-
-    <script>
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        const btnLaunch = document.getElementById('btnLaunch');
-        const feedback = document.getElementById('feedback');
-
-        // --- CONSTANTES MATHÉMATIQUES (L'équation donnée) ---
-        const gravity = 0.6; // Gravité constante
-        const groundY = 400; // Hauteur du sol (h=0)
-        const startX = 100; // Position de départ horizontale
-        const startY = 320; // Position de départ verticale (main du bonhomme)
-
-        // --- ÉTAT DU JEU ---
-        let gameActive = true;
-        let score = 0;
-        let level = 1;
+    function updatePhysics() {
+        // On multiplie tout par timeScale pour l'effet ralenti
+        ball.x += ball.vx * timeScale;
+        ball.y += ball.vy * timeScale;
+        ball.vy += normalGravity * timeScale;
         
-        // Paramètres de lancer (fixes pour le niveau, mais changent à chaque niveau)
-        let launchParams = { angle: 45, force: 70 };
+        trajectory.push({x: ball.x, y: ball.y});
 
-        // Éléments mobiles
-        let ball = { x: startX, y: startY, vx: 0, vy: 0, active: false };
-        let basket = { x: 500, y: groundY - 5, w: 60, h: 40 }; // Panier bougeable par la souris
-        let trajectory = []; // Historique pour le dessin
+        if (ball.y >= groundY - 10) {
+            ball.y = groundY - 10;
+            ball.active = false;
+            checkWin();
+        }
+    }
 
-        // Mémoriser la position de la souris
-        let mouseX = 0;
+    function drawBasket() {
+        if (!ball.active) basket.x = mouseX;
+        
+        // Limites
+        if (basket.x < 200) basket.x = 200;
+        if (basket.x > canvas.width - 50) basket.x = canvas.width - 50;
 
-        // --- DESSIN PRINCIPAL (BOUCLE) ---
-        function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const bx = basket.x - (basket.w / 2);
+        const by = basket.y - basket.h;
 
-            // 1. Dessiner le décor (Sol néon)
-            ctx.strokeStyle = varColor('--primary');
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.moveTo(0, groundY);
-            ctx.lineTo(canvas.width, groundY);
-            ctx.stroke();
-            ctx.lineWidth = 1; // Reset
+        // Couleur change si ralenti (effet "focus")
+        ctx.strokeStyle = (timeScale < 1) ? "#ffea00" : "#2ea043";
+        ctx.lineWidth = (timeScale < 1) ? 6 : 4;
+        ctx.strokeRect(bx, by, basket.w, 10);
+        
+        // Filet
+        ctx.strokeStyle = "rgba(255,255,255,0.2)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(bx, by + 10, basket.w, 30);
+    }
 
-            // 2. Dessiner le Stickman (Bonhomme allumette)
-            drawStickman(startX - 20, groundY);
-
-            // 3. Dessiner la Cible Potentielle (Aide visuelle légère)
-            // On pourrait cacher ça pour plus de difficulté
-            /*
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
-            ctx.beginPath();
-            ctx.arc(calculateExactImpact(), groundY, 15, 0, Math.PI*2);
-            ctx.fill();
-            */
-
-            // 4. Dessiner la trajectoire passée
-            ctx.strokeStyle = "rgba(88, 166, 255, 0.4)";
-            ctx.beginPath();
-            trajectory.forEach((p, i) => {
-                if(i === 0) ctx.moveTo(p.x, p.y);
-                else ctx.lineTo(p.x, p.y);
-            });
-            ctx.stroke();
-
-            // 5. Dessiner le Panier (Suiveur de souris)
-            drawBasket();
-
-            // 6. Dessiner le Ballon
-            ctx.fillStyle = varColor('--accent');
-            ctx.beginPath();
-            ctx.arc(ball.x, ball.y, 10, 0, Math.PI * 2);
-            ctx.fill();
-            // Effet d'ombre/lueur sur le ballon
-            ctx.shadowColor = varColor('--accent');
-            ctx.shadowBlur = 15;
-            ctx.fill();
-            ctx.shadowBlur = 0; // Reset pour le reste
-
-            if (ball.active) {
-                updatePhysics();
-            }
-
-            requestAnimationFrame(draw);
+    function checkWin() {
+        const win = ball.x >= basket.x - basket.w/2 && ball.x <= basket.x + basket.w/2;
+        if (win) {
+            score += 100;
+            document.getElementById('scoreVal').innerText = score;
+            showFeedback("OMG C'EST DEDANS ! 🔥", "#2ea043");
+            level++;
+            document.getElementById('levelVal').innerText = level;
+        } else {
+            showFeedback("NOOOON ! Trop loin...", "#f85149");
         }
 
-        // --- PHYSIQUE ET LOGIQUE ---
-        function updatePhysics() {
-            ball.x += ball.vx;
-            ball.y += ball.vy;
-            ball.vy += gravity; // f''(t) = -g (accélération)
-            trajectory.push({x: ball.x, y: ball.y});
-
-            // Collision avec le sol (Hauteur h = 0)
-            if (ball.y >= groundY - 10) { // -10 pour le rayon
-                ball.y = groundY - 10; // Bloquer au sol
-                ball.active = false;
-                checkWin();
-            }
-        }
-
-        // Calcul exact de l'impact (La vraie solution mathématique)
-        function calculateExactImpact() {
-            // Conversion angle en radians
-            const rad = launchParams.angle * Math.PI / 180;
-            // Vitesse initiale
-            const v0 = launchParams.force * 0.23; 
-            const vx0 = Math.cos(rad) * v0;
-            const vy0 = -Math.sin(rad) * v0; // Négatif car Y vers le bas
-
-            // Équation de trajectoire : y(x) = h0 + tan(θ)x - (g / (2v0²cos²θ))x²
-            // On simplifie en résolvant par rapport au temps t quand y(t) = groundY
-            // Résolution de l'équation quadratique : 0.5*g*t² + vy0*t + (startY - groundY) = 0
-            const a_quad = 0.5 * gravity;
-            const b_quad = vy0;
-            const c_quad = startY - groundY;
-
-            // Discriminant : delta = b² - 4ac
-            const delta = (b_quad * b_quad) - (4 * a_quad * c_quad);
-            
-            if (delta < 0) return 0; // Pas de solution réelle (ne devrait pas arriver)
-
-            // On prend la racine positive (temps futur)
-            const t_impact = (-b_quad + Math.sqrt(delta)) / (2 * a_quad);
-
-            // Position X finale : x(t) = x0 + vx0*t
-            const finalX = startX + (vx0 * t_impact);
-            return finalX;
-        }
-
-        function checkWin() {
-            const impactX = ball.x;
-            const basketMinX = basket.x - (basket.w / 2);
-            const basketMaxX = basket.x + (basket.w / 2);
-
-            if (impactX >= basketMinX && impactX <= basketMaxX) {
-                // GAGNÉ
-                score += 100 * level;
-                document.getElementById('scoreVal').innerText = score;
-                showFeedback("DANS LE MILLE ! (Zéro Trouvé)", varColor('--secondary'));
-                level++;
-                document.getElementById('levelVal').innerText = level;
-            } else {
-                // PERDU
-                showFeedback("RÂTÉ ! Le Zéro était plus loin.", varColor('--accent'));
-                score = Math.max(0, score - 50); // Pénalité
-                document.getElementById('scoreVal').innerText = score;
-            }
-
-            // Changer les paramètres pour le prochain tour
+        setTimeout(() => {
+            resetBall();
             setRandomLaunchParams();
-            
-            // Reactiver le bouton après un délai
-            setTimeout(() => {
-                resetBall();
-                btnLaunch.disabled = false;
-            }, 2000);
-        }
+            btnLaunch.disabled = false;
+        }, 2000);
+    }
 
-        // --- FONCTIONS DE DESSIN UTILITAIRES ---
-        function drawStickman(x, y) {
-            ctx.strokeStyle = "white";
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            // Corps
-            ctx.moveTo(x, y - 10); ctx.lineTo(x, y - 50);
-            // Tête
-            ctx.arc(x, y - 60, 10, 0, Math.PI*2);
-            // Bras (en l'air pour lancer)
-            ctx.moveTo(x, y - 45); ctx.lineTo(x - 15, y - 60); // Bras arrière
-            ctx.moveTo(x, y - 45); ctx.lineTo(startX, startY); // Bras avant vers la balle
-            // Jambes
-            ctx.moveTo(x, y - 10); ctx.lineTo(x - 10, y);
-            ctx.moveTo(x, y - 10); ctx.lineTo(x + 10, y);
-            ctx.stroke();
-            ctx.lineWidth = 1;
-        }
+    // --- RESTE DES FONCTIONS (IDENTIQUES) ---
+    function drawStickman(x, y) {
+        ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.beginPath();
+        ctx.moveTo(x, y - 10); ctx.lineTo(x, y - 50); // Corps
+        ctx.arc(x, y - 60, 10, 0, Math.PI*2); // Tête
+        ctx.moveTo(x, y - 45); ctx.lineTo(x - 15, y - 60); // Bras
+        ctx.moveTo(x, y - 10); ctx.lineTo(x - 10, y); ctx.lineTo(x + 10, y); // Jambes
+        ctx.stroke();
+    }
 
-        function drawBasket() {
-            // Le panier suit la souris
-            basket.x = mouseX;
+    function showFeedback(text, color) {
+        feedback.innerText = text;
+        feedback.style.color = color;
+        feedback.style.display = "block";
+        feedback.style.fontSize = "4rem";
+        setTimeout(() => feedback.style.display = "none", 1500);
+    }
 
-            // Empêcher le panier de sortir de l'écran ou de traverser le bonhomme
-            if (basket.x < startX + 50) basket.x = startX + 50;
-            if (basket.x > canvas.width - (basket.w/2)) basket.x = canvas.width - (basket.w/2);
+    function setRandomLaunchParams() {
+        launchParams.angle = 35 + (Math.random() * 35);
+        launchParams.force = 60 + (Math.random() * 40);
+    }
 
-            const bx = basket.x - (basket.w / 2);
-            const by = basket.y - basket.h;
+    btnLaunch.onclick = () => {
+        if (ball.active) return;
+        btnLaunch.disabled = true;
+        const rad = launchParams.angle * Math.PI / 180;
+        const v0 = launchParams.force * 0.25;
+        ball.vx = Math.cos(rad) * v0;
+        ball.vy = -Math.sin(rad) * v0;
+        ball.active = true;
+    };
 
-            // Dessiner le filet (semi-transparent)
-            ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
-            ctx.fillRect(bx, by, basket.w, basket.h);
-            
-            // Dessiner l'arceau (Néon vert)
-            ctx.strokeStyle = varColor('--secondary');
-            ctx.lineWidth = 4;
-            ctx.strokeRect(bx, by, basket.w, basket.h / 4);
-            
-            // Maillage du filet
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
-            ctx.lineWidth = 1;
-            for(let i=1; i<4; i++) {
-                // Lignes verticales
-                ctx.moveTo(bx + (i*basket.w/4), by);
-                ctx.lineTo(bx + (i*basket.w/4), basket.y);
-            }
-            ctx.stroke();
-        }
+    canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        mouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
+    });
 
-        // --- GESTIONNAIRES D'ÉVÉNEMENTS ---
-        btnLaunch.onclick = () => {
-            if (ball.active || !gameActive) return;
-            btnLaunch.disabled = true;
-
-            // Calcul des vecteurs de vitesse initiaux basés sur l'équation du niveau
-            const rad = launchParams.angle * Math.PI / 180;
-            // Vitesse initiale (arbitraire, juste pour que ça rentre dans l'écran)
-            const v0 = launchParams.force * 0.23; 
-            
-            ball.vx = Math.cos(rad) * v0;
-            ball.vy = -Math.sin(rad) * v0; // Négatif pour aller vers le haut
-
-            ball.active = true;
-        };
-
-        // Suivi de la souris sur le canvas
-        canvas.addEventListener('mousemove', (e) => {
-            const rect = canvas.getBoundingClientRect();
-            mouseX = e.clientX - rect.left;
-        });
-
-        // --- UTILITAIRES ---
-        function resetBall() {
-            ball = { x: startX, y: startY, vx: 0, vy: 0, active: false };
-            trajectory = [];
-        }
-
-        function setRandomLaunchParams() {
-            // L'angle change un peu (30° à 70°)
-            launchParams.angle = 30 + (Math.random() * 40);
-            // La force change beaucoup (50 à 100)
-            launchParams.force = 50 + (Math.random() * 50);
-        }
-
-        function showFeedback(text, color) {
-            feedback.innerText = text;
-            feedback.style.color = color;
-            feedback.style.display = "block";
-            feedback.style.textShadow = `0 0 15px ${color}`;
-            
-            setTimeout(() => {
-                feedback.style.display = "none";
-            }, 1800);
-        }
-
-        // Récupérer une couleur CSS variable
-        function varColor(name) {
-            return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-        }
-
-        // Initialisation
-        setRandomLaunchParams();
-        draw(); // Lancer la boucle de dessin
-
-    </script>
-</body>
-</html>
+    function resetBall() { ball = { x: startX, y: startY, vx: 0, vy: 0, active: false }; trajectory = []; }
+    
+    setRandomLaunchParams();
+    draw();
+</script>
